@@ -218,13 +218,14 @@ def query_china_imports(years: list) -> Optional[pd.DataFrame]:
     China country code in DataWeb is typically '5700'.
     """
     # Data measures for imports:
-    # CONS_VAL_MO = Customs Value
+    # CONS_VAL_MO = Customs Value 
     # CONS_FIR_UNIT_QUANT = First Unit of Quantity
     # CONS_DUTY_MO = Calculated Duties
+    # These codes are based on DataWeb documentation. May need to verify.
     data_measures = [
-        "CONS_VAL_MO",           # Customs Value
+        "CONS_VAL_MO",           # Customs Value (monthly)
         "CONS_FIR_UNIT_QUANT",   # First Unit of Quantity
-        "CONS_DUTY_MO"           # Calculated Duties
+        "CONS_DUTY_MO"           # Calculated Duties (monthly)
     ]
     
     query = build_base_query(
