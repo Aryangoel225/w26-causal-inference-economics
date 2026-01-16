@@ -1,215 +1,165 @@
-"""
-USITC DataWeb API Query Script
-For W26 Causal Inference Economics Project
-"""
-
 import pandas as pd
 import requests
-import json
-import time
+import urllib3
 import os
-from typing import Optional
 from dotenv import load_dotenv
 
+# 1. SETUP
 load_dotenv()
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
+token = os.getenv("TRADE_API_KEY")
+if not token:
+    raise SystemExit("Environment variable TRADE_API_KEY is not set.")
+token = token.strip()
 
-api_key = os.getenv("TRADE_API_KEY").strip()
-if not api_key:
-    raise ValueError("TRADE_API_KEY not found in environment or .env file")
-
-TOKEN = api_key
-BASE_URL = 'https://datawebws.usitc.gov/dataweb'
-HEADERS = {
+base_url = "https://datawebws.usitc.gov/dataweb"
+headers = {
     "Content-Type": "application/json; charset=utf-8",
-    "Authorization": "Bearer " + TOKEN
+    "Authorization": "Bearer " + token,
 }
 
-requests.packages.urllib3.disable_warnings()
+# 2. COLLECT DATA ACROSS ALL YEARS AND METRICS
+all_data = []
 
-# =============================================================================
-# DATA MEASURE CODES - UPDATE THESE FROM THE WEB INTERFACE
-# =============================================================================
-
-DATA_MEASURES = [
-    "REPLACE_WITH_CUSTOMS_VALUE_CODE",  # customs value
-    "REPLACE_WITH_QUANTITY_CODE",       # first unit of quantity
-    "REPLACE_WITH_DUTY_CODE"            # calculated duties
+metrics = [
+    ("CONS_CUSTOMS_VALUE", "Customs Value"),
+    ("CONS_FIR_UNIT_QUANT", "First Unit of Quantity"),
+    ("CONS_CALC_DUTY", "Calculated Duties"),
 ]
-CHINA_CODE = "5700"
 
-# =============================================================================
-# HELPER FUNCTIONS  
-# =============================================================================
-
-def get_columns(column_groups, prev_cols=None):
-    if prev_cols is None:
-        columns = []
-    else:
-        columns = prev_cols
-    for group in column_groups:
-        if isinstance(group, dict) and 'columns' in group.keys():
-            get_columns(group['columns'], columns)
-        elif isinstance(group, dict) and 'label' in group.keys():
-            columns.append(group['label'])
-        elif isinstance(group, list):
-            get_columns(group, columns)
-    return columns
-
-
-def get_data(data_groups):
-    data = []
-    for row in data_groups:
-        row_data = []
-        for field in row['rowEntries']:
-            row_data.append(field['value'])
-        data.append(row_data)
-    return data
-
-
-def run_query(query_data: dict) -> Optional[pd.DataFrame]:
-    try:
-        response = requests.post(
-            f"{BASE_URL}/api/v2/report2/runReport",
-            headers=HEADERS,
-            json=query_data,
-            verify=False
-        )
-        response.raise_for_status()
-        result = response.json()
-        
-        if 'dto' not in result:
-            print(f"ERROR: {json.dumps(result, indent=2)}")
-            return None
-        if 'errors' in result['dto'] and result['dto']['errors']:
-            print(f"API ERRORS: {result['dto']['errors']}")
-            return None
-        if 'tables' not in result['dto'] or len(result['dto']['tables']) == 0:
-            return None
-            
-        table = result['dto']['tables'][0]
-        if 'row_groups' not in table or len(table['row_groups']) == 0:
-            return None
-            
-        columns = get_columns(table['column_groups'])
-        data = get_data(table['row_groups'][0]['rowsNew'])
-        
-        return pd.DataFrame(data, columns=columns) if data else None
-        
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
-
-
-def build_query(years, countries, data_measures, granularity="10"):
-    return {
-        "savedQueryName": "",
-        "savedQueryDesc": "",
+for year in range(1995, 2006):  # 1995 to 2005 inclusive
+    for metric_code, metric_name in metrics:
+        print(f"Fetching {metric_name} for {year}...")
+    
+    requestData = {
+        "savedQueryType": "",
         "isOwner": True,
-        "runMonthly": False,
-        "reportOptions": {
-            "tradeType": "Import",
-            "classificationSystem": "HTS"
-        },
+        "unitConversion": "0",
+        "manualConversions": [],
+        "reportOptions": {"tradeType": "Import", "classificationSystem": "HTS"},
         "searchOptions": {
             "MiscGroup": {
                 "districts": {
                     "aggregation": "Aggregate District",
-                    "districtGroups": {"userGroups": []},
+                    "districtGroups": {},
                     "districts": [],
                     "districtsExpanded": [{"name": "All Districts", "value": "all"}],
-                    "districtsSelectType": "all"
+                    "districtsSelectType": "all",
                 },
                 "importPrograms": {
                     "aggregation": None,
                     "importPrograms": [],
-                    "programsSelectType": "all"
+                    "programsSelectType": "all",
                 },
                 "extImportPrograms": {
                     "aggregation": "Aggregate CSC",
                     "extImportPrograms": [],
                     "extImportProgramsExpanded": [],
-                    "programsSelectType": "all"
+                    "programsSelectType": "all",
                 },
                 "provisionCodes": {
                     "aggregation": "Aggregate RPCODE",
                     "provisionCodesSelectType": "all",
                     "rateProvisionCodes": [],
-                    "rateProvisionCodesExpanded": []
-                }
+                    "rateProvisionCodesExpanded": [],
+                    "rateProvisionGroups": {"systemGroups": []},
+                },
             },
             "commodities": {
                 "aggregation": "Break Out Commodities",
-                "codeDisplayFormat": "YES",
+                "codeDisplayFormat": "NO",
                 "commodities": [],
                 "commoditiesExpanded": [],
                 "commoditiesManual": "",
                 "commodityGroups": {"systemGroups": [], "userGroups": []},
                 "commoditySelectType": "all",
-                "granularity": granularity,
+                "granularity": "10",
                 "groupGranularity": None,
-                "searchGranularity": None
+                "searchGranularity": None,
+                "showHTSValidDetails": "",
             },
             "componentSettings": {
-                "dataToReport": data_measures,
+                "dataToReport": [metric_code],
                 "scale": "1",
                 "timeframeSelectType": "fullYears",
-                "years": years,
+                "years": [str(year)],  # Single year per request
                 "startDate": None,
                 "endDate": None,
                 "startMonth": None,
                 "endMonth": None,
-                "yearsTimeline": "Monthly"
+                "yearsTimeline": "Monthly",
             },
             "countries": {
                 "aggregation": "Break Out Countries",
-                "countries": countries,
-                "countriesExpanded": [],
-                "countriesSelectType": "list" if countries else "all",
-                "countryGroups": {"systemGroups": [], "userGroups": []}
-            }
+                "countries": ["5700"],
+                "countriesExpanded": [{"name": "China - CN - CHN", "value": "5700"}],
+                "countriesSelectType": "list",
+                "countryGroups": {"systemGroups": [], "userGroups": []},
+            },
         },
         "sortingAndDataFormat": {
             "DataSort": {
-                "columnOrder": [],
+                "columnOrder": ["COUNTRY", "YEAR"],
                 "fullColumnOrder": [],
-                "sortOrder": []
+                "sortOrder": [
+                    {"sortData": "Countries", "orderBy": "asc"},
+                    {"sortData": "Year", "orderBy": "asc"},
+                ],
             },
             "reportCustomizations": {
                 "exportCombineTables": False,
-                "showAllSubtotal": True,
-                "subtotalRecords": "",
-                "totalRecords": "50000",
-                "exportRawData": False
-            }
-        }
+                "totalRecords": "20000",
+                "exportRawData": True,
+            },
+        },
+        "deletedCountryUserGroups": [],
+        "deletedCommodityUserGroups": [],
+        "deletedDistrictUserGroups": [],
     }
 
+    try:
+        response = requests.post(
+            base_url + "/api/v2/report2/runReport",
+            headers=headers,
+            json=requestData,
+            verify=False,
+        )
 
-def query_imports(years, countries, data_measures, granularity="10"):
-    query = build_query(years, countries, data_measures, granularity)
-    return run_query(query)
+        if response.status_code == 200:
+            resp_json = response.json()
+            
+            if resp_json.get("dto") and resp_json["dto"].get("tables"):
+                tables = resp_json["dto"]["tables"]
 
+                for table in tables:
+                    if table.get("row_groups"):
+                        for row_group in table.get("row_groups", []):
+                            for row in row_group.get("rowsNew", []):
+                                row_entries = row.get("rowEntries", [])
+                                row_values = [entry.get("value") for entry in row_entries]
+                                all_data.append([year, metric_name] + row_values)
+                
+                print(f"  ✓ {year} - {metric_name} complete")
+            else:
+                print(f"  ✗ {year} - {metric_name}: No tables in response")
+        else:
+            print(f"  ✗ {year} - {metric_name}: Status {response.status_code}")
 
-# =============================================================================
-# MAIN EXECUTION
-# =============================================================================
+    except Exception as e:
+        print(f"  ✗ {year} - {metric_name}: Error - {e}")
 
-if __name__ == "__main__":
-    # Test query
-    df_test = query_imports(
-        years=["2005"],
-        countries=[CHINA_CODE],
-        data_measures=DATA_MEASURES,
-        granularity="2"
-    )
-
-    if df_test is not None:
-        print(f"Success! Shape: {df_test.shape}")
-        print(df_test.head())
-        df_test.to_csv("test_query_result.csv", index=False)
-    else:
-        print("Query failed - check data measure codes")
+# 3. CREATE FINAL DATAFRAME
+if all_data:
+    # Determine column count from first row
+    n_cols = len(all_data[0]) - 2  # Subtract year and metric columns
+    columns = ["Year", "Data Type"] + [f"Col_{i}" for i in range(n_cols)]
+    
+    df_combined = pd.DataFrame(all_data, columns=columns)
+    print(f"\nSuccess! Retrieved {len(df_combined)} total rows.")
+    print(df_combined.head(10))
+    
+    df_combined.to_csv("China_1995_2005.csv", index=False)
+    print("Saved to China_1995_2005.csv")
+else:
+    print("No data retrieved.")
