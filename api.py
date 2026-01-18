@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 import urllib3
 import os
+import time
 from dotenv import load_dotenv
 
 # 1. SETUP
@@ -168,13 +169,18 @@ if all_data:
 else:
     print("No data retrieved.")
 
+# Add delay before all-countries requests to avoid rate limiting
+print("\nWaiting before all-countries requests...")
+time.sleep(5)
+
 # 4. COLLECT DATA FOR IMPORTS FROM ALL COUNTRIES
 all_data_imports = []
 
 for year in range(1995, 2006):  # 1995 to 2005 inclusive
-    print(f"Fetching imports for {year} (All Countries)...")
-    
-    requestData = {
+    for metric_code, metric_name in metrics:
+        print(f"Fetching {metric_name} for {year} (All Countries)...")
+        
+        requestData = {
         "savedQueryType": "",
         "isOwner": True,
         "unitConversion": "0",
@@ -235,11 +241,7 @@ for year in range(1995, 2006):  # 1995 to 2005 inclusive
                 "showHTSValidDetails": ""
             },
             "componentSettings": {
-                "dataToReport": [
-                    "CONS_FIR_UNIT_QUANT",
-                    "CONS_CUSTOMS_VALUE",
-                    "CONS_CALC_DUTY"
-                ],
+                "dataToReport": [metric_code],
                 "scale": "1",
                 "timeframeSelectType": "fullYears",
                 "years": [str(year)],
@@ -267,63 +269,12 @@ for year in range(1995, 2006):  # 1995 to 2005 inclusive
         },
         "sortingAndDataFormat": {
             "DataSort": {
-                "columnOrder": [
-                    "COUNTRY",
-                    "HTS10 & DESCRIPTION",
-                    "YEAR"
-                ],
-                "fullColumnOrder": [
-                    {
-                        "checked": False,
-                        "disabled": False,
-                        "hasChildren": False,
-                        "name": "Countries",
-                        "value": "COUNTRY",
-                        "classificationSystem": "",
-                        "groupUUID": "",
-                        "items": [],
-                        "tradeType": ""
-                    },
-                    {
-                        "checked": False,
-                        "disabled": False,
-                        "hasChildren": False,
-                        "name": "HTS10 & DESCRIPTION",
-                        "value": "HTS10 & DESCRIPTION",
-                        "classificationSystem": "",
-                        "groupUUID": "",
-                        "items": [],
-                        "tradeType": ""
-                    },
-                    {
-                        "checked": False,
-                        "disabled": False,
-                        "hasChildren": False,
-                        "name": "Year",
-                        "value": "YEAR",
-                        "classificationSystem": "",
-                        "groupUUID": "",
-                        "items": [],
-                        "tradeType": ""
-                    }
-                ],
+                "columnOrder": ["COUNTRY", "YEAR"],
+                "fullColumnOrder": [],
                 "sortOrder": [
-                    {
-                        "sortData": "Countries",
-                        "orderBy": "asc",
-                        "year": ""
-                    },
-                    {
-                        "sortData": "HTS10 & DESCRIPTION",
-                        "orderBy": "asc",
-                        "year": ""
-                    },
-                    {
-                        "sortData": "Year",
-                        "orderBy": "asc",
-                        "year": ""
-                    }
-                ]
+                    {"sortData": "Countries", "orderBy": "asc"},
+                    {"sortData": "Year", "orderBy": "asc"},
+                ],
             },
             "reportCustomizations": {
                 "exportCombineTables": False,
@@ -356,22 +307,23 @@ for year in range(1995, 2006):  # 1995 to 2005 inclusive
                             for row in row_group.get("rowsNew", []):
                                 row_entries = row.get("rowEntries", [])
                                 row_values = [entry.get("value") for entry in row_entries]
-                                all_data_imports.append([year] + row_values)
+                                all_data_imports.append([year, metric_name] + row_values)
                 
-                print(f"  ✓ {year} complete")
+                print(f"  ✓ {year} - {metric_name} complete")
             else:
-                print(f"  ✗ {year}: No tables in response")
+                print(f"  ✗ {year} - {metric_name}: No tables in response")
         else:
-            print(f"  ✗ {year}: Status {response.status_code}")
+            print(f"  ✗ {year} - {metric_name}: Status {response.status_code}")
     except Exception as e:
-        print(f"  ✗ {year}: Error - {e}")
-        
-# 5. CREATE FINAL DATAFRAME FOR IMPORTS ALL COUNTRIES
+        print(f"  ✗ {year} - {metric_name}: Error - {e}")
+                # Add delay between all-countries requests to avoid rate limiting
+        time.sleep(2)
+        # 5. CREATE FINAL DATAFRAME FOR IMPORTS ALL COUNTRIES
 if all_data_imports:
     # Determine column count from max row length (rows may vary)
     max_cols = max(len(row) for row in all_data_imports)
-    n_cols = max_cols - 1  # Subtract year column
-    columns = ["Year"] + [f"Col_{i}" for i in range(n_cols)]
+    n_cols = max_cols - 2  # Subtract year and metric columns
+    columns = ["Year", "Data Type"] + [f"Col_{i}" for i in range(n_cols)]
 
     # Pad rows to match max length with None values
     all_data_imports = [row + [None] * (max_cols - len(row)) for row in all_data_imports]
